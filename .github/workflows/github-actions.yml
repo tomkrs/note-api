@@ -79,9 +79,9 @@ jobs:
         echo "REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
         echo "REPO_NAME=$(echo ${GITHUB_REPOSITORY#*/} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
         if [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "TAG=pre-merge" >> $GITHUB_ENV
+          echo "TAG=pre-merge-${{ github.head_ref }}" >> $GITHUB_ENV
         else
-          echo "TAG=post-merge" >> $GITHUB_ENV
+          echo "TAG=post-merge-${{ github.ref_name }}" >> $GITHUB_ENV
         fi
 
     - name: Log in to GitHub Container Registry
