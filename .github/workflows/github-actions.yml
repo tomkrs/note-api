@@ -81,7 +81,7 @@ jobs:
         if [ "${{ github.event_name }}" == "pull_request" ]; then
           echo "TAG=pre-merge-${{ github.head_ref }}" >> $GITHUB_ENV
         else
-          echo "TAG=post-merge-${{ github.ref_name }}" >> $GITHUB_ENV
+          echo "TAG=post-merge-${{ github.head_ref }}" >> $GITHUB_ENV
         fi
 
     - name: Log in to GitHub Container Registry
