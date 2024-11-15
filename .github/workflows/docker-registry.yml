@@ -1,0 +1,51 @@
+name: Docker-Registry
+
+on:
+  workflow_run:
+    workflows: ["Test-and-Analysis"]  # Ensure this matches the name of the test-and-analysis workflow
+    types:
+      - completed  # Trigger when the dependent workflow completes
+
+permissions:
+  packages: write  # Required for pushing Docker images to GitHub Container Registry
+
+jobs:
+  build-and-push-container:
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}  # Only run if the dependent workflow succeeded
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set lowercase repo envs
+      run: |
+        echo "REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        echo "REPO_NAME=$(echo ${GITHUB_REPOSITORY#*/} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+    
+    - name: Set commit hash short env
+      run: echo "COMMIT_HASH_SHORT=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+    - name: Get current date
+      id: date
+      run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+      
+    - name: Set Docker Container Tag
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "TAG=pre-merge-${{ steps.date.outputs.date }}-sha-${{ env.COMMIT_HASH_SHORT }}" >> $GITHUB_ENV
+        else
+          echo "TAG=main-release-${{ steps.date.outputs.date }}-sha-${{ env.COMMIT_HASH_SHORT }}" >> $GITHUB_ENV
+        fi
+
+    - name: Log in to GitHub Container Registry
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+    - name: Build Docker image
+      run: docker build -t ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG }} .
+
+    - name: Push Docker image
+      run: docker push ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG }}
