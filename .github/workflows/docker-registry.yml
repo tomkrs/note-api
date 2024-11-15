@@ -3,6 +3,7 @@ name: Docker-Registry
 on:
   workflow_run:
     workflows: ["Test-and-Analysis"]  # Ensure this matches the name of the test-and-analysis workflow
+    branches: [main]    
     types:
       - completed  # Trigger when the dependent workflow completes
 
