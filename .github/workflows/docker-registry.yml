@@ -11,6 +11,35 @@ permissions:
   packages: write  # Required for pushing Docker images to GitHub Container Registry
 
 jobs:
+  envs:
+    outputs:
+      repo_owner: ${{ steps.set-env.outputs.repo_owner }}
+      repo_name: ${{ steps.set-env.outputs.repo_name }}
+      tag: ${{ steps.set-tag.outputs.tag }}
+
+    - name: Set lowercase repo envs
+      id: set-env
+      run: |
+        echo "::set-output name=repo_owner::$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')"
+        echo "::set-output name=repo_name::$(echo ${GITHUB_REPOSITORY#*/} | tr '[:upper:]' '[:lower:]')"
+
+    - name: Set commit hash short env
+      run: echo "COMMIT_HASH_SHORT=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+    - name: Get current date
+      id: date
+      run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+      
+    - name: Set Docker Container Tag
+      id: set-tag
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "::set-output name=tag::pre-merge-${{ steps.date.outputs.date }}-sha-${{ env.COMMIT_HASH_SHORT }}"
+        else
+          echo "::set-output name=tag::main-release-${{ steps.date.outputs.date }}-sha-${{ env.COMMIT_HASH_SHORT }}"
+        fi
+
+jobs:
   build-and-push-container:
     runs-on: ubuntu-latest
 
@@ -20,33 +49,37 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set lowercase repo envs
-      run: |
-        echo "REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-        echo "REPO_NAME=$(echo ${GITHUB_REPOSITORY#*/} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-    
-    - name: Set commit hash short env
-      run: echo "COMMIT_HASH_SHORT=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
-
-    - name: Get current date
-      id: date
-      run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
-      
-    - name: Set Docker Container Tag
-      run: |
-        if [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "TAG=pre-merge-${{ steps.date.outputs.date }}-sha-${{ env.COMMIT_HASH_SHORT }}" >> $GITHUB_ENV
-        else
-          echo "TAG=main-release-${{ steps.date.outputs.date }}-sha-${{ env.COMMIT_HASH_SHORT }}" >> $GITHUB_ENV
-        fi
-
     - name: Log in to GitHub Container Registry
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
     - name: Build Docker image
-      run: docker build -t ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG }} .
+      run: docker build -t ghcr.io/${{ needs.envs.outputs.repo_owner }}/${{ needs.envs.outputs.repo_name }}:${{ needs.envs.outputs.tag }} .
 
     - name: Push Docker image
-      run: docker push ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG }}
+      run: docker push ghcr.io/${{ needs.envs.outputs.repo_owner }}/${{ needs.envs.outputs.repo_name }}:${{ needs.envs.outputs.tag }}
+  
+  deploy-to-google-cloud-run:
+    needs: build-and-push-container  # This ensures the deploy job runs only if build-and-push-container succeeds
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - uses: 'actions/checkout@v4'
+
+    - uses: 'google-github-actions/auth@v2'
+      with:
+        workload_identity_provider: '-'
+        service_account: '-'
+
+    - id: 'deploy'
+      uses: 'google-github-actions/deploy-cloudrun@v2'
+      with:
+        service: 'note-api-hs-heilbronn-devsecops-group-tnm'
+        image: ghcr.io/${{ needs.envs.outputs.repo_owner }}/${{ needs.envs.outputs.repo_name }}:${{ needs.envs.outputs.tag }}
+
+    - name: 'Use output'
+      run: 'curl "${{ steps.deploy.outputs.url }}"'
